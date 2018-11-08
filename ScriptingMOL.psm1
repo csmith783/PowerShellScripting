@@ -184,3 +184,97 @@ Function Set-ServiceLogon {
     }
 
 } #Function
+
+function Get-FolderSize {
+    [CmdletBinding()]
+    Param (
+        [Parameter(Mandatory=$true, ValueFromPipeline=$true, ValueFromPipelineByPropertyName=$true)]
+        [string[]] $Path
+    )
+
+    BEGIN {
+        # Intentionally Blank
+    }
+    PROCESS {
+        ForEach ($folder in $Path){
+            Write-Verbose "Checking $folder"
+            if (Test-Path -Path $folder){
+                Write-Verbose "$folder Exists."
+
+                $params = @{'Path'= $folder
+                            'Recurse' = $true
+                            'File' = $true
+                }
+
+                $measure = get-childitem @params | Measure-Object -Property Length -Sum
+                [pscustomobject]@{'Path' = $folder
+                                    'Files' = $measure.Count
+                                    'Bytes' = $measure.Sum}
+            } else {
+                Write-Verbose "$folder does not exist."
+                [PSCustomObject]@{
+                    'Path' = $folder
+                    'Files' = 0
+                    'Bytes' = 0
+                }
+            }
+        }
+    }
+    END {
+        # Intentionally left blank
+    }
+}
+
+function Get-UserHomeFolderInfo {
+    [CmdletBinding()]
+    Param (
+        [Parameter(Mandatory=$true)]
+        [string] $HomeRootPath
+    )
+
+    BEGIN {
+        # Intentionally left blank
+    }
+
+    PROCESS {
+        Write-Verbose "Enumerating $HomeRootPath"
+        $params = @{
+                'Path' = $HomeRootPath
+                'Directory' = $true
+        }
+
+        foreach ($folder in (Get-childitem @params)) {
+            write-verbose "Checking $(folder.name)"
+            $params = @{
+                'Identity' = $folder.Name
+                'ErrorAction' = 'SilentlyContinue'
+            }
+            $user = get-aduser @params
+
+            if ($user) {
+                Write-Verbose " + User Exists."
+                $result = get-foldersize -Path $folder.fullname
+                [PSCustomObject]@{
+                    'user' = $folder.Name 
+                    'Path' = $folder.fullname
+                    'Files' = $result.Files
+                    'Bytes' = $result.Bytes
+                    'Status' = 'OK'
+                }
+            } else {
+                Write-verbose " - User does not exist."
+                [PSCustomObject]@{
+                    'user' = $folder.Name 
+                    'Path' = $folder.fullname
+                    'Files' = 0
+                    'Bytes' = 0
+                    'Status' = 'Orphan'
+                }
+            }
+        }
+    }
+
+    END {
+        # Intentionally left blank
+    }
+}
