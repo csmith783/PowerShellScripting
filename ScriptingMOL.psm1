@@ -118,42 +118,63 @@ Function Set-ServiceLogon {
     Process {
 
         foreach ($computer in $ComputerName) {
-            Write-Verbose "Connect to $computer on WS-MAN"
-            $option = New-CimSessionOption -Protocol Wsman
-            $session = New-CimSession -ComputerName $computer -SessionOption $option
 
-            if ($NewUser) {
-                $args = @{'StartName' = "$NewUser"; 'StartPassword' = "$NewPassword"}
-            }
-            else {
-                $args = @{'StartPassword' = "$NewPassword"}
-                Write-warning "Not setting a new user name"
-            } #IF
+            do {
+                Write-Verbose "Connect to $computer on WS-MAN"
+                $protocol = 'Wsman"'
 
-            Write-Verbose "Setting $ServiceName on $computer"
-            $cim_params = @{'Query'="Select * from Win32_Service WHERE Name='$ServiceName'"
+                Try {
+                    $option = New-CimSessionOption -Protocol $protocol
+                    $session = New-CimSession -ComputerName $computer -SessionOption $option
+
+                    if ($NewUser) {
+                        $args = @{'StartName' = "$NewUser"; 'StartPassword' = "$NewPassword"}
+                    }
+                    else {
+                        $args = @{'StartPassword' = "$NewPassword"}
+                        Write-warning "Not setting a new user name"
+                    } #IF
+
+                    Write-Verbose "Setting $ServiceName on $computer"
+                    $cim_params = @{'Query'="Select * from Win32_Service WHERE Name='$ServiceName'"
                                 'MethodName'='Change'
                                 'Arguments'=$args
                                 'Computername'=$computer
                                 'CimSession'=$session}
             
-            $return = Invoke-CimMethod @cim_params #Splatting 
+                    $return = Invoke-CimMethod @cim_params #Splatting 
 
-            switch ($return.ReturnValue) {
-                0 {$status = "Success"  }
-                22 {$status = "Invalid Account"}
-                Default {$status = "Failed: $return.ReturnValue"}
-            }
+                    switch ($return.ReturnValue) {
+                        0 {$status = "Success"  }
+                        22 {$status = "Invalid Account"}
+                        Default {$status = "Failed: $return.ReturnValue"}
+                    }
 
-            $properties = @{'MachineName'=$computer
-                            'Status'=$status}
-            $object = New-Object -TypeName psobject -Property $properties
+                    $properties = @{'MachineName'=$computer
+                                    'Status'=$status}
+                    $object = New-Object -TypeName psobject -Property $properties
 
-            Write-Verbose "Closing connection to $computer"
-            Write-Output $object
+                    Write-Verbose "Closing connection to $computer"
+                    Write-Output $object
 
-            $session | Remove-CimSession 
+                    $session | Remove-CimSession 
+                } Catch {
+                # change the protocol, and if both have already been tried, check if logging is specified, if so, log the computer
+                    Switch ($protocol){
+                        'Wsman'{
+                            $protocol = 'Dcom'
+                        } 'Dcom' {
+                            $protocol = 'Stop'
+                            if ($PSBoundParameters.ContainsKey('ErrorLogFilePath')){
+                                Write-Warning "$computer failed; logged to $ErrorLogFilePath."
+                                $computer | out-file $ErrorLogFilePath -Append
+                            } # IF Logging is enabled
+                        } 
+                    } 
 
+                } # Try Catch End
+
+            } Until ($protocol -eq 'Stop')
         } #ForEach
 
     } #Process
